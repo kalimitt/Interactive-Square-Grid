@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Square Grid Modifier</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 0 20px;
+            background: #0000ff;
+            color: #f6f6fa;
+        }
+        .controls {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            margin-bottom: 24px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        input, select, button {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #d2d2d7;
+            font-size: 14px;
+        }
+        .controls label {
+        color: #000000;
+        }
+
+        button {
+            background: #0071e3;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        button:hover { background: #0077ed; }
+        #downloadBtn { background: #34c759; }
+        #downloadBtn:hover { background: #28a745; }
+        
+        #grid-container {
+            display: grid;
+            gap: 2px;
+            background: #ccc;
+            padding: 20px;
+            border-radius: 12px;
+            max-width: max-content;
+            margin: 0 auto;
+        }
+        .tile {
+            background: #eee;
+            cursor: move;
+            position: relative;
+            overflow: hidden;
+            user-select: none;
+            box-sizing: border-box;
+        }
+        .tile.selected {
+            outline: 3px solid #0071e3;
+            z-index: 10;
+        }
+        .tile canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            transition: transform 0.2s;
+        }
+        .coords {
+            position: absolute;
+            bottom: 4px;
+            left: 4px;
+            background: rgba(0,0,0,0.6);
+            color: white;
+            padding: 2px 6px;
+            font-size: 10px;
+            border-radius: 4px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Visual Square Grid Editor</h2>
+    
+    <div class="controls">
+        <input type="file" id="imageLoader" accept="image/*">
+        <label>Rows: <input type="number" id="rowsInput" value="3" min="1" max="10" style="width: 40px;"></label>
+        <label>Cols: <input type="number" id="colsInput" value="3" min="1" max="10" style="width: 40px;"></label>
+        <button id="updateGrid">Generate Grid</button>
+        <button id="downloadBtn" style="display: none;">📥 Download Image</button>
+        <span style="color: #000000; font-size: 14px;">| Click a tile and press 'R' to rotate. Drag and drop tiles to swap.</span>
+    </div>
+
+    <div id="grid-container"></div>
+
+    <script>
+        const imageLoader = document.getElementById('imageLoader');
+        const rowsInput = document.getElementById('rowsInput');
+        const colsInput = document.getElementById('colsInput');
+        const updateGridBtn = document.getElementById('updateGrid');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const container = document.getElementById('grid-container');
+
+        let originalImage = new Image();
+        let draggedTile = null;
+
+        // Force browser to convert file to data locally
+        imageLoader.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    originalImage.src = event.target.result;
+                };
+                reader.readAsDataURL(e.target.files[0]);
+            }
+        });
+
+        originalImage.onload = () => { 
+            setupGrid(); 
+        };
+
+        updateGridBtn.addEventListener('click', () => { 
+            if (originalImage.src) {
+                setupGrid(); 
+            } else {
+                alert("Please select an image file first!");
+            }
+        });
+
+        function setupGrid() {
+            container.innerHTML = '';
+            const rows = parseInt(rowsInput.value) || 3;
+            const cols = parseInt(colsInput.value) || 3;
+
+            const maxDisplayWidth = 600;
+            const cellDisplaySize = maxDisplayWidth / cols; 
+            const cellSourceSize = originalImage.width / cols;
+
+            container.style.gridTemplateColumns = `repeat(${cols}, ${cellDisplaySize}px)`;
+
+            for (let r = 1; r <= rows; r++) {
+                for (let c = 1; c <= cols; c++) {
+                    const tile = document.createElement('div');
+                    tile.className = 'tile';
+                    tile.style.width = `${cellDisplaySize}px`;
+                    tile.style.height = `${cellDisplaySize}px`; 
+                    tile.setAttribute('draggable', 'true');
+                    
+                    const initialOrder = (r - 1) * cols + c;
+                    tile.style.order = initialOrder;
+
+                    tile.dataset.srcR = r;
+                    tile.dataset.srcC = c;
+                    tile.dataset.rotation = "0";
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = cellSourceSize;
+                    canvas.height = cellSourceSize; 
+                    const ctx = canvas.getContext('2d');
+
+                    const srcX = (c - 1) * cellSourceSize;
+                    const srcY = (r - 1) * cellSourceSize;
+                    
+                    ctx.drawImage(originalImage, srcX, srcY, cellSourceSize, cellSourceSize, 0, 0, cellSourceSize, cellSourceSize);
+
+                    const label = document.createElement('div');
+                    label.className = 'coords';
+                    label.innerText = `[${r},${c}]`;
+
+                    tile.appendChild(canvas);
+                    tile.appendChild(label);
+                    container.appendChild(tile);
+
+                    setupTileEvents(tile);
+                }
+            }
+            downloadBtn.style.display = 'inline-block';
+        }
+
+        function setupTileEvents(tile) {
+            tile.addEventListener('click', () => {
+                document.querySelectorAll('.tile').forEach(t => t.classList.remove('selected'));
+                tile.classList.add('selected');
+            });
+
+            tile.addEventListener('dragstart', (e) => {
+                draggedTile = tile;
+                e.dataTransfer.effectAllowed = 'move';
+                tile.style.opacity = "0.5";
+            });
+
+            tile.addEventListener('dragend', () => { if (draggedTile) draggedTile.style.opacity = "1"; });
+            tile.addEventListener('dragover', (e) => { e.preventDefault(); });
+
+            tile.addEventListener('drop', (e) => {
+                e.preventDefault();
+                if (draggedTile && draggedTile !== tile) {
+                    const tempOrder = draggedTile.style.order;
+                    draggedTile.style.order = tile.style.order;
+                    tile.style.order = tempOrder;
+                }
+            });
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key.toLowerCase() === 'r') {
+                const selectedTile = document.querySelector('.tile.selected');
+                if (selectedTile) {
+                    let currentRotation = parseInt(selectedTile.dataset.rotation) || 0;
+                    currentRotation = (currentRotation + 90) % 360;
+                    selectedTile.dataset.rotation = currentRotation;
+                    
+                    const canvas = selectedTile.querySelector('canvas');
+                    canvas.style.transform = `rotate(${currentRotation}deg)`;
+                }
+            }
+        });
+
+        downloadBtn.addEventListener('click', () => {
+            const rows = parseInt(rowsInput.value);
+            const cols = parseInt(colsInput.value);
+            const cellSourceSize = originalImage.width / cols;
+
+            const finalCanvas = document.createElement('canvas');
+            finalCanvas.width = originalImage.width;
+            finalCanvas.height = cellSourceSize * rows; 
+            const finalCtx = finalCanvas.getContext('2d');
+
+            const tiles = Array.from(document.querySelectorAll('.tile'));
+            tiles.sort((a, b) => parseInt(a.style.order) - parseInt(b.style.order));
+
+            tiles.forEach((tile, index) => {
+                const targetCol = index % cols;
+                const targetRow = Math.floor(index / cols);
+                
+                const destX = targetCol * cellSourceSize;
+                const destY = targetRow * cellSourceSize;
+
+                const srcR = parseInt(tile.dataset.srcR);
+                const srcC = parseInt(tile.dataset.srcC);
+                
+                const srcX = (srcC - 1) * cellSourceSize;
+                const finalSrcY = (srcR - 1) * cellSourceSize;
+                const rotation = parseInt(tile.dataset.rotation) || 0;
+
+                finalCtx.save();
+                finalCtx.translate(destX + cellSourceSize / 2, destY + cellSourceSize / 2);
+                finalCtx.rotate((rotation * Math.PI) / 180);
+                finalCtx.drawImage(originalImage, srcX, finalSrcY, cellSourceSize, cellSourceSize, -cellSourceSize / 2, -cellSourceSize / 2, cellSourceSize, cellSourceSize);
+                finalCtx.restore();
+            });
+
+            try {
+                const link = document.createElement('a');
+                link.download = 'modified_square_grid.jpg';
+                link.href = finalCanvas.toDataURL('image/jpeg', 0.9);
+                link.click();
+            } catch (err) {
+                const win = window.open();
+                win.document.write(`<h3 style="font-family:sans-serif;text-align:center;">Right-click the image below and select "Save Image As..."</h3><div style="text-align:center;"><img src="${finalCanvas.toDataURL('image/jpeg')}" /></div>`);
+            }
+        });
+    </script>
+</body>
+</html>
